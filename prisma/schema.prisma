@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  externalId String  @unique // ID venant de Clerk
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  
+  presentations Presentation[]
+}
+
+// On stocke les informations sur chaque présentation uploadée
+model Presentation {
+  id        String   @id @default(cuid())
+  fileName  String
+  fileHash  String?  // Pour la déduplication
+  createdAt DateTime @default(now())
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  slides    Slide[] // Une présentation a plusieurs slides
+
+  @@index([userId, fileHash]) // Index pour recherche rapide
+}
+
+// On stocke le contenu et les scripts de chaque slide
+// IL N'Y A MAINTENANT QU'UN SEUL MODÈLE "SLIDE"
+model Slide {
+  id              String  @id @default(cuid())
+  slideNumber     Int
+  extractedText   String? @db.Text // Le texte brut qu'on a extrait
+  imageUrl        String? // NOUVEAU : Pour stocker l'URL de l'image de la slide
+  scriptSimple    String? @db.Text // Le script généré en mode "Simple"
+  scriptMedium    String? @db.Text // Le script généré en mode "Medium"
+  scriptPro       String? @db.Text // Le script généré en mode "Pro"
+  
+  presentationId  String
+  presentation    Presentation @relation(fields: [presentationId], references: [id], onDelete: Cascade)
+
+  @@unique([presentationId, slideNumber]) // Chaque slide est unique pour une présentation donnée
+}
