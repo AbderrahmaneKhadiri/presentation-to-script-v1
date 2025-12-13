@@ -1,14 +1,17 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* On demande à Vercel d'ignorer les erreurs ESLint et TS pendant le build */
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // On supprime la clé 'eslint' qui causait l'erreur
   typescript: {
+    // Ignore les erreurs TypeScript lors du build pour éviter les blocages
     ignoreBuildErrors: true,
   },
-  /* Vos autres configs existantes si nécessaire */
+  experimental: {
+    // Si vous utilisez turbopack, certaines options expérimentales peuvent aider
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
 };
 
 export default nextConfig;

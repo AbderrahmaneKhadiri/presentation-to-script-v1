@@ -3316,7 +3316,7 @@ export default Wrapper;
 # app\dashboard\page.tsx
 
 ```tsx
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import prisma from "@/lib/prisma";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -3326,8 +3326,6 @@ import { FileText, Calendar, ArrowRight, Layout } from "lucide-react";
 import Image from "next/image";
 import { Sidebar } from "@/app/components/Sidebar";
 import { DeleteProjectButton } from "../components/dashboard/DeleteProjectButton";
-// IMPORT DU NOUVEAU COMPOSANT
-
 
 export default async function DashboardPage() {
     const { userId } = await auth();
@@ -3336,16 +3334,34 @@ export default async function DashboardPage() {
         redirect("/");
     }
 
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
         where: { externalId: userId },
     });
 
     if (!user) {
-        return (
-            <div className="min-h-screen flex items-center justify-center text-white">
-                Utilisateur introuvable. Veuillez vous reconnecter.
-            </div>
-        );
+        const clerkUser = await currentUser();
+
+        if (clerkUser) {
+            const email = clerkUser.emailAddresses[0]?.emailAddress;
+
+            if (email) {
+                user = await prisma.user.create({
+                    data: {
+                        externalId: userId,
+                        email: email,
+                        name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || "Utilisateur sans nom",
+                    }
+                });
+            }
+        }
+
+        if (!user) {
+            return (
+                <div className="min-h-screen flex items-center justify-center text-white">
+                    Erreur: Impossible de créer votre profil utilisateur. Veuillez contacter le support.
+                </div>
+            );
+        }
     }
 
     const presentations = await prisma.presentation.findMany({
@@ -6274,7 +6290,7 @@ export const config = {
 ```ts
 /// <reference types="next" />
 /// <reference types="next/image-types/global" />
-/// <reference path="./.next/types/routes.d.ts" />
+import "./.next/dev/types/routes.d.ts";
 
 // NOTE: This file should not be edited
 // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
@@ -6287,14 +6303,17 @@ export const config = {
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* On demande à Vercel d'ignorer les erreurs ESLint et TS pendant le build */
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // On supprime la clé 'eslint' qui causait l'erreur
   typescript: {
+    // Ignore les erreurs TypeScript lors du build pour éviter les blocages
     ignoreBuildErrors: true,
   },
-  /* Vos autres configs existantes si nécessaire */
+  experimental: {
+    // Si vous utilisez turbopack, certaines options expérimentales peuvent aider
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
 };
 
 export default nextConfig;
@@ -6309,15 +6328,13 @@ export default nextConfig;
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "build": "next build --no-lint",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.35.5",
     "@google/generative-ai": "^0.24.1",
-    "@huggingface/inference": "^4.11.0",
-    "@mistralai/mistralai": "^1.10.0",
     "@prisma/client": "^6.16.3",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.7",
@@ -6326,50 +6343,42 @@ export default nextConfig;
     "@radix-ui/react-slot": "^1.2.3",
     "@tabler/icons-react": "^3.35.0",
     "@tanstack/react-query": "^5.90.2",
-    "@types/formidable": "^3.4.5",
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.35.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "fast-xml-parser": "^5.3.0",
-    "formidable": "^3.5.4",
     "framer-motion": "^12.23.22",
     "html2canvas": "^1.4.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.544.0",
     "motion": "^12.23.22",
-    "next": "15.5.4",
+    "next": "^16.0.10",
     "next-themes": "^0.4.6",
     "pdf-parse": "^2.1.7",
     "pdfjs-dist": "^5.4.296",
-    "pptx-preview": "^1.0.6",
     "react": "19.1.0",
     "react-countup": "^6.5.3",
     "react-dom": "19.1.0",
     "react-dropzone": "^14.3.8",
     "react-intersection-observer": "^9.16.0",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/pdf-parse": "^1.1.5",
-    "@types/pdfjs-dist": "^2.10.377",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.5.4",
+    "eslint-config-next": "^16.0.10",
     "prisma": "^6.16.3",
     "tailwindcss": "^4",
-    "tailwindcss-animate": "^1.0.7",
-    "tw-animate-css": "^1.4.0",
     "typescript": "^5"
   }
 }
-
 ```
 
 # postcss.config.mjs
@@ -6747,13 +6756,47 @@ listModels();
 
 ```
 
+# test-key.js
+
+```js
+// test-key.js
+const apiKey = "AIzaSyCi1zeDcJNL7KCwmM5CNg5ZvOlG49eFCm4"; // <--- Mettez la clé ici pour tester
+
+async function testConnection() {
+    console.log("🔍 Test de la clé API...");
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${AIzaSyCi1zeDcJNL7KCwmM5CNg5ZvOlG49eFCm4}`;
+
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.error) {
+            console.error("❌ ERREUR API :", data.error.message);
+        } else {
+            console.log("✅ SUCCÈS ! Voici les modèles disponibles pour cette clé :");
+            const models = data.models.map(m => m.name.replace("models/", ""));
+            console.log(models.filter(m => m.includes("gemini")));
+        }
+    } catch (e) {
+        console.error("❌ Erreur réseau :", e.message);
+    }
+}
+
+testConnection();
+```
+
 # tsconfig.json
 
 ```json
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -6763,7 +6806,7 @@ listModels();
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -6771,7 +6814,9 @@ listModels();
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
@@ -6780,10 +6825,14 @@ listModels();
     "**/*.tsx",
     ".next/types/**/*.ts",
     "app/components",
-    "types/**/*.ts"
+    "types/**/*.ts",
+    ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }
+
 ```
 
 # types\pptxjs.d.ts
