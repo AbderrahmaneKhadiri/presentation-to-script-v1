@@ -25,9 +25,9 @@ export function Step1Upload({ onFileAccepted, accept }: Props) {
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <div className="bg-emerald-950/30 backdrop-blur-xl rounded-3xl p-8 md:p-12 shadow-2xl shadow-emerald-900/50">
+      <div className="bg-emerald-950/30 backdrop-blur-xl rounded-3xl p-6 md:p-8 shadow-2xl shadow-emerald-900/50">
 
-        <div className="text-center mb-8">
+        <div className="text-center mb-4">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 mb-4 border border-emerald-500/20">
             <span className="font-mono font-bold">1</span>
           </div>
@@ -38,7 +38,7 @@ export function Step1Upload({ onFileAccepted, accept }: Props) {
         <div
           {...getRootProps()}
           className={cn(
-            "relative group rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 overflow-hidden",
+            "relative group rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 overflow-hidden",
             isDragActive
               ? "bg-emerald-500/10 scale-[1.02]"
               : "bg-transparent hover:bg-emerald-500/5 hover:scale-[1.01]"

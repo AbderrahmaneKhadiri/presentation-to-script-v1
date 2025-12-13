@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useUser } from "@clerk/nextjs";
 import { Step1Upload } from '../components/generate/Step1Upload';
 import { Step2Config } from '../components/generate/Step2Config';
 import { Step3Loading } from '../components/generate/Step3Loading';
+import { Sidebar } from '../components/Sidebar';
 
 export type ScriptConfig = {
   style: 'simple' | 'normal' | 'pro';
@@ -12,12 +14,19 @@ export type ScriptConfig = {
 };
 
 export default function GeneratePage() {
+  const { isLoaded, isSignedIn, user } = useUser();
   const [step, setStep] = useState(1);
   const [presentationId, setPresentationId] = useState<string | null>(null);
   const [config, setConfig] = useState<ScriptConfig>({ style: 'normal', length: 'moyen' });
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.push("/");
+    }
+  }, [isLoaded, isSignedIn, router]);
 
   const isLandscape = (width: number, height: number) => {
     return width > height;
@@ -73,6 +82,17 @@ export default function GeneratePage() {
       if (extractedSlides.length === 0) {
         throw new Error("Aucune slide au format paysage n'a été trouvée dans ce document.");
       }
+
+      // --- LIMITATION DU NOMBRE DE SLIDES ---
+      // @ts-ignore - Clerk types might not be fully updated locally
+      const isPremium = user?.publicMetadata?.plan === 'premium';
+      const slideLimit = isPremium ? 50 : 15;
+
+      if (extractedSlides.length > slideLimit) {
+        throw new Error(`Votre plan actuel est limité à ${slideLimit} slides. ${!isPremium ? "Passez à la version Premium pour aller jusqu'à 50." : "Veuillez réduire votre présentation."}`);
+      }
+      // --------------------------------------
+
       const response = await fetch('/api/create-presentation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,9 +128,7 @@ export default function GeneratePage() {
       router.push(`/script-of-the-presentation/${presentationId}`);
     } catch (error: any) {
       console.error(error);
-      // ✅ LA CORRECTION EST ICI : On utilise le state pour afficher l'erreur
       setError(error.message);
-      // On remet l'utilisateur à l'étape de configuration
       setStep(2);
     }
   };
@@ -120,48 +138,58 @@ export default function GeneratePage() {
     'application/pdf': ['.pdf'],
   };
 
+  if (!isLoaded || !isSignedIn) {
+    return null; // Ou un loader
+  }
+
   return (
-    <main className="min-h-screen relative">
-      {/* Background Elements */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-[120px] pointer-events-none" />
+    <div className="flex h-screen w-full bg-emerald-950 overflow-hidden">
+      <Sidebar />
 
-      <div className="container mx-auto py-12 px-4 relative z-10">
+      <main className="flex-1 relative flex flex-col items-center justify-center overflow-hidden">
+        {/* Background Elements */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-[120px] pointer-events-none" />
 
-        {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-3xl md:text-5xl font-bold text-white mb-4 tracking-tight">
-            Générez votre <span className="text-emerald-400">Script</span>
-          </h1>
-          <p className="text-emerald-100/60 text-lg max-w-2xl mx-auto">
-            Transformez vos slides en un discours percutant en quelques secondes.
-          </p>
+        <div className="container mx-auto p-4 relative z-10 flex flex-col items-center justify-center h-full">
+
+          {/* Header - Affiché uniquement à l'étape 1 */}
+          {step === 1 && (
+            <div className="text-center mb-8">
+              <h1 className="text-3xl md:text-5xl font-bold text-white mb-4 tracking-tight">
+                Générez votre <span className="text-emerald-400">Script</span>
+              </h1>
+              <p className="text-emerald-100/60 text-lg max-w-2xl mx-auto">
+                Transformez vos slides en un discours percutant en quelques secondes.
+              </p>
+            </div>
+          )}
+
+          {/* Affichage global de l'erreur */}
+          {error && (
+            <div className="max-w-2xl mx-auto bg-red-500/10 border border-red-500/50 text-red-200 p-4 rounded-xl mb-8 text-center backdrop-blur-sm animate-in fade-in slide-in-from-top-2">
+              <p className="font-semibold flex items-center justify-center gap-2">
+                ⚠️ Une erreur est survenue
+              </p>
+              <p className="text-sm opacity-90 mt-1">{error}</p>
+            </div>
+          )}
+
+          {step === 1 && (
+            <Step1Upload
+              onFileAccepted={handleFileAccepted}
+              accept={acceptedFileTypes}
+            />
+          )}
+          {step === 2 && (
+            <Step2Config
+              config={config}
+              setConfig={setConfig}
+              onSubmit={handleConfigSubmit}
+            />
+          )}
+          {step === 3 && <Step3Loading />}
         </div>
-
-        {/* Affichage global de l'erreur */}
-        {error && (
-          <div className="max-w-2xl mx-auto bg-red-500/10 border border-red-500/50 text-red-200 p-4 rounded-xl mb-8 text-center backdrop-blur-sm animate-in fade-in slide-in-from-top-2">
-            <p className="font-semibold flex items-center justify-center gap-2">
-              ⚠️ Une erreur est survenue
-            </p>
-            <p className="text-sm opacity-90 mt-1">{error}</p>
-          </div>
-        )}
-
-        {step === 1 && (
-          <Step1Upload
-            onFileAccepted={handleFileAccepted}
-            accept={acceptedFileTypes}
-          />
-        )}
-        {step === 2 && (
-          <Step2Config
-            config={config}
-            setConfig={setConfig}
-            onSubmit={handleConfigSubmit}
-          />
-        )}
-        {step === 3 && <Step3Loading />}
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

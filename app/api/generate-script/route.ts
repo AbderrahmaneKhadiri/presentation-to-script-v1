@@ -30,7 +30,7 @@ const genAI = new GoogleGenerativeAI(apiKey);
 /**
  * Tente de générer du contenu en essayant plusieurs modèles Gemini successivement.
  */
-async function generateWithFallback(systemPrompt: string, userPrompt: string): Promise<string> {
+async function generateWithFallback(systemPrompt: string, userPrompt: string, imageUrl?: string): Promise<string> {
   let lastError = null;
 
   for (const modelName of MODELS_TO_TRY) {
@@ -38,7 +38,28 @@ async function generateWithFallback(systemPrompt: string, userPrompt: string): P
       console.log(`Tentative avec le modèle : ${modelName}...`);
       const model = genAI.getGenerativeModel({ model: modelName });
 
-      const result = await model.generateContent(`${systemPrompt}\n\n${userPrompt}`);
+      let result;
+
+      if (imageUrl) {
+        // Extraction des données de l'image (format data:image/jpeg;base64,...)
+        const base64Data = imageUrl.split(',')[1];
+        const mimeType = imageUrl.split(';')[0].split(':')[1];
+
+        const imagePart = {
+          inlineData: {
+            data: base64Data,
+            mimeType: mimeType
+          }
+        };
+
+        result = await model.generateContent([
+          systemPrompt + "\n\n" + userPrompt,
+          imagePart
+        ]);
+      } else {
+        result = await model.generateContent(`${systemPrompt}\n\n${userPrompt}`);
+      }
+
       const response = await result.response;
       const text = response.text();
 
@@ -55,52 +76,93 @@ async function generateWithFallback(systemPrompt: string, userPrompt: string): P
   throw new Error(`Tous les modèles ont échoué. Dernière erreur : ${lastError?.message}`);
 }
 
+/**
+ * Génère le script pour une slide spécifique avec des règles strictes de formatage.
+ */
 async function generateScriptForSlide(
   text: string,
   config: ScriptConfig,
   slideNumber: number,
-  totalSlides: number
+  totalSlides: number,
+  imageUrl?: string | null
 ): Promise<string> {
-  const styleInstruction = {
-    simple: "un style simple, direct et facile à comprendre.",
-    normal: "un style engageant, conversationnel et professionnel.",
-    pro: "un style très professionnel, détaillé, avec des arguments solides et un vocabulaire soutenu.",
+
+  // 1. Définition des personnalités (System Prompt) avec TYPAGE EXPLICITE pour éviter l'erreur rouge
+  const personas: Record<ScriptConfig['style'], string> = {
+    simple: `Tu es un orateur chaleureux, accessible et enthousiaste. Tu t'adresses à un public grand public ou débutant. Ton objectif est de vulgariser, de raconter une histoire simple et d'être très proche de ton audience. Utilise un langage courant, "on" et "vous".`,
+    normal: `Tu es un présentateur professionnel, confiant et clair. Tu t'adresses à des collègues ou des clients. Ton ton est équilibré : ni trop familier, ni trop rigide. Tu cherches à convaincre, informer et engager avec dynamisme.`,
+    pro: `Tu es un expert de haut niveau, un dirigeant ou un conférencier stratégique. Tu t'adresses à un comité de direction, des investisseurs ou des experts. Ton ton est autoritaire, précis, analytique et sophistiqué. Utilise un vocabulaire riche et des tournures élégantes.`
   };
 
-  const lengthInstruction = {
-    court: "Le script doit être concis (environ 50 mots).",
-    moyen: "Le script doit avoir une longueur standard (environ 120 mots).",
-    long: "Le script doit être détaillé (environ 200 mots).",
+  // 2. Définition des contraintes de longueur avec TYPAGE EXPLICITE
+  const lengthConstraints: Record<ScriptConfig['length'], string> = {
+    court: `Génère un "Elevator Pitch". Va droit au but. Ne retiens que l'idée maîtresse (le "Key Takeaway"). Maximum 3 phrases percutantes. Sois incisif.`,
+    moyen: `Génère un discours standard et équilibré (environ 45 secondes à l'oral). Présente les points principaux de la slide en les liant logiquement.`,
+    long: `Génère une analyse approfondie et détaillée. Prends le temps de décortiquer chaque élément, d'expliquer le "pourquoi" et le "comment". Fais des liens avec le contexte global.`
   };
 
-  // ===== PROMPT SYSTÈME =====
-  const systemPrompt = `Tu es un coach expert en art oratoire. Ta mission est de rédiger un script percutant pour une slide SPÉCIFIQUE au sein d'une présentation complète. Ne te présente pas et ne commence pas chaque slide par "Bonjour". Tu dois créer une continuité entre les slides.`;
+  // 3. Gestion intelligente de la structure (Début / Milieu / Fin)
+  let structureInstruction = "";
 
-  // Instruction de position
-  let positionInstruction = "C'est une slide intermédiaire. Commence par une transition fluide depuis la slide précédente et termine en introduisant la suivante.";
   if (slideNumber === 1) {
-    positionInstruction = "C'est la toute première slide. Commence par une phrase d'accroche pour introduire le sujet de la présentation, puis présente le contenu de cette slide.";
+    // PREMIÈRE SLIDE : Introduction obligatoire
+    if (config.style === 'simple') {
+      structureInstruction = `Ceci est la TOUTE PREMIÈRE slide. Tu DOIS OBLIGATOIREMENT commencer par une phrase de bienvenue chaleureuse (ex: "Bonjour tout le monde, ravi d'être avec vous..."). Ensuite, introduis le sujet.`;
+    } else if (config.style === 'pro') {
+      structureInstruction = `Ceci est la TOUTE PREMIÈRE slide. Tu DOIS OBLIGATOIREMENT commencer par une salutation formelle et poser le cadre stratégique de la présentation.`;
+    } else {
+      structureInstruction = `Ceci est la TOUTE PREMIÈRE slide. Commence par "Bonjour à toutes et à tous", présente le titre et l'objectif de la présentation.`;
+    }
   } else if (slideNumber === totalSlides) {
-    positionInstruction = "C'est la dernière slide. Fais une transition depuis la slide précédente, présente le contenu de cette slide, puis termine par une conclusion générale forte pour toute la présentation.";
+    // DERNIÈRE SLIDE : Conclusion obligatoire
+    structureInstruction = `Ceci est la DERNIÈRE slide. Résume brièvement le point clé, puis termine par une phrase de clôture forte et remercie l'audience pour son attention. Ne laisse pas le discours en suspens.`;
+  } else {
+    // SLIDES INTERMÉDIAIRES : Transition fluide
+    structureInstruction = `Ceci est la slide numéro ${slideNumber} sur ${totalSlides}. NE DIS PAS "BONJOUR". Commence directement par une transition fluide (ex: "Ce qui nous amène à...", "Par ailleurs...", "Analysons maintenant...") qui lie l'idée précédente à celle-ci.`;
   }
 
-  // ===== PROMPT UTILISATEUR =====
-  const userPrompt = `
-Voici les détails de la slide à traiter :
-- Contexte : Tu rédiges le script pour la slide ${slideNumber} sur un total de ${totalSlides}.
-- Instruction de position : ${positionInstruction}
-- Texte brut de la slide : "${text}"
-- Style demandé : ${styleInstruction[config.style]}
-- Longueur demandée : ${lengthInstruction[config.length]}
+  // 4. Construction du System Prompt (Le "Cerveau")
+  const systemPrompt = `
+    ${personas[config.style]}
 
-RAPPEL : Ne retourne QUE le script à prononcer, sans aucun titre ni commentaire.`;
+    RÈGLES ABSOLUES DE FORMATAGE (MODE TÉLÉPROMPTEUR) :
+    1.  INTERDIT : Ne jamais utiliser de tirets (-), de puces (•) ou de deux-points (:) pour faire des listes.
+    2.  INTERDIT : Ne jamais écrire "Slide suivante", "Titre :", ou "Script :".
+    3.  INTERDIT : Ne laisse aucune instruction entre parenthèses comme (Pause) ou (Rires). Écris uniquement le texte parlé.
+    4.  OBLIGATOIRE : Écris un texte fluide et continu, rédigé entièrement en phrases complètes (Sujet + Verbe + Complément).
+    5.  OBLIGATOIRE : Si le texte source est une liste à puces, transforme-la en prose (ex: au lieu de "- A - B", dis "Premièrement nous avons A, et ensuite nous voyons B").
+    6.  OBLIGATOIRE : Utilise la ponctuation orale (!, ?, ...) pour marquer le rythme.
+    7. INTERDIT : N'utilise pas de deux-points (:) au milieu d'une phrase. Remplace-les par des points (.) ou des mots de liaison comme "c'est-à-dire" ou "car".
+  `;
 
-  // Appel avec la logique de fallback (Test des modèles configurés)
+  // 5. Construction du User Prompt (La "Mission")
+  let userPrompt = `
+    CONTEXTE DE LA MISSION :
+    - Slide actuelle : ${slideNumber} / ${totalSlides}
+    - Instruction de structure : ${structureInstruction}
+    - Longueur et densité : ${lengthConstraints[config.length]}
+    
+    CONTENU À TRANSFORMER EN DISCOURS :
+    Voici le texte brut extrait de la slide : "${text}"
+  `;
+
+  if (imageUrl) {
+    userPrompt += `
+    Une image de la slide est fournie en pièce jointe. 
+    IMPORTANT : Analyse cette image. Si elle contient un graphique, des chiffres clés ou une photo pertinente, intègre leur description dans ton discours pour le rendre vivant (ex: "Comme vous pouvez le voir sur ce graphique...").
+    `;
+  }
+
+  userPrompt += `
+    Génère maintenant le script exact à prononcer, mot pour mot.
+  `;
+
+  // Appel avec la logique de fallback
   try {
-    return await generateWithFallback(systemPrompt, userPrompt);
+    return await generateWithFallback(systemPrompt, userPrompt, imageUrl || undefined);
   } catch (error) {
     console.error("Erreur fatale lors de la génération :", error);
-    return "Désolé, la génération a échoué pour cette slide malgré plusieurs tentatives.";
+    return "Mesdames, Messieurs, une erreur technique m'empêche de commenter cette diapositive spécifique. Passons à la suite.";
   }
 }
 
@@ -134,7 +196,7 @@ export async function POST(req: NextRequest) {
 
     const totalSlides = presentation.slides.length;
 
-    // MODIFICATION ICI : Utilisation d'une boucle séquentielle pour éviter de saturer la DB
+    // Utilisation d'une boucle séquentielle pour éviter de saturer la DB et l'API
     for (const slide of presentation.slides) {
       try {
         // 1. Génération du script avec l'IA
@@ -142,7 +204,8 @@ export async function POST(req: NextRequest) {
           slide.extractedText || 'Cette slide est principalement visuelle ou ne contient pas de texte.',
           config,
           slide.slideNumber,
-          totalSlides
+          totalSlides,
+          slide.imageUrl // Passage de l'image
         );
 
         // 2. Détermination du champ à mettre à jour
