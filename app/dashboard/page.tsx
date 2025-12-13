@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import prisma from "@/lib/prisma";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -8,8 +8,6 @@ import { FileText, Calendar, ArrowRight, Layout } from "lucide-react";
 import Image from "next/image";
 import { Sidebar } from "@/app/components/Sidebar";
 import { DeleteProjectButton } from "../components/dashboard/DeleteProjectButton";
-// IMPORT DU NOUVEAU COMPOSANT
-
 
 export default async function DashboardPage() {
     const { userId } = await auth();
@@ -18,16 +16,34 @@ export default async function DashboardPage() {
         redirect("/");
     }
 
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
         where: { externalId: userId },
     });
 
     if (!user) {
-        return (
-            <div className="min-h-screen flex items-center justify-center text-white">
-                Utilisateur introuvable. Veuillez vous reconnecter.
-            </div>
-        );
+        const clerkUser = await currentUser();
+
+        if (clerkUser) {
+            const email = clerkUser.emailAddresses[0]?.emailAddress;
+
+            if (email) {
+                user = await prisma.user.create({
+                    data: {
+                        externalId: userId,
+                        email: email,
+                        name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || "Utilisateur sans nom",
+                    }
+                });
+            }
+        }
+
+        if (!user) {
+            return (
+                <div className="min-h-screen flex items-center justify-center text-white">
+                    Erreur: Impossible de créer votre profil utilisateur. Veuillez contacter le support.
+                </div>
+            );
+        }
     }
 
     const presentations = await prisma.presentation.findMany({

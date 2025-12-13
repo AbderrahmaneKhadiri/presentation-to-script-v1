@@ -509,6 +509,59 @@ export async function GET() {
 
 ```
 
+# app\api\update-slide\route.ts
+
+```ts
+import { NextRequest, NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
+import { auth } from '@clerk/nextjs/server';
+
+export async function PATCH(req: NextRequest) {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return NextResponse.json({ error: 'Non autorisé.' }, { status: 401 });
+        }
+
+        const { slideId, newScript } = await req.json();
+
+        if (!slideId || typeof newScript !== 'string') {
+            return NextResponse.json({ error: 'Données manquantes.' }, { status: 400 });
+        }
+
+        // 1. Récupérer la slide pour savoir quel champ mettre à jour
+        // (On met à jour le champ qui contient déjà du texte, par priorité)
+        const slide = await prisma.slide.findUnique({
+            where: { id: slideId },
+        });
+
+        if (!slide) {
+            return NextResponse.json({ error: 'Slide introuvable.' }, { status: 404 });
+        }
+
+        // On détermine quel champ mettre à jour pour que l'affichage reste cohérent
+        // Si scriptPro existe, on met à jour scriptPro, sinon scriptMedium, sinon scriptSimple
+        let fieldToUpdate = 'scriptMedium'; // Par défaut
+        if (slide.scriptPro) fieldToUpdate = 'scriptPro';
+        else if (slide.scriptSimple) fieldToUpdate = 'scriptSimple';
+
+        // 2. Mise à jour dans la base de données
+        await prisma.slide.update({
+            where: { id: slideId },
+            data: {
+                [fieldToUpdate]: newScript
+            }
+        });
+
+        return NextResponse.json({ success: true });
+
+    } catch (error: any) {
+        console.error("Erreur lors de la sauvegarde du script:", error);
+        return NextResponse.json({ error: 'Erreur serveur.' }, { status: 500 });
+    }
+}
+```
+
 # app\components\dashboard\DeleteProjectButton.tsx
 
 ```tsx
@@ -2318,7 +2371,7 @@ export function Navbar() {
         <Link href="/" className="flex items-center gap-2 group">
           <Presentation className="h-6 w-6 text-emerald-400" />
           <span className="font-bold text-lg text-white">
-            Presenter AI
+            Presenter's CoPilot
           </span>
         </Link>
 
@@ -2375,12 +2428,16 @@ export function Sidebar() {
 
     return (
         <aside className="w-64 h-screen bg-emerald-950/50 backdrop-blur-xl border-r border-emerald-500/10 flex flex-col relative z-50">
-            {/* Logo Area */}
+
+            {/* --- LOGO CORRIGÉ --- */}
             <div className="p-6 border-b border-emerald-500/10">
-                <Link href={isSignedIn ? "/generate" : "/"} className="flex items-center gap-2 group">
-                    <Presentation className="h-6 w-6 text-emerald-400 group-hover:text-emerald-300 transition-colors" />
-                    <span className="font-bold text-xl text-white tracking-tight">
-                        Presenter AI
+                <Link href={isSignedIn ? "/generate" : "/"} className="flex items-center gap-3 group">
+                    {/* flex-shrink-0 empêche l'icône de s'écraser */}
+                    <Presentation className="h-6 w-6 text-emerald-400 group-hover:text-emerald-300 transition-colors flex-shrink-0" />
+
+                    {/* whitespace-nowrap empêche le retour à la ligne + text-lg pour ajuster la taille */}
+                    <span className="font-bold text-lg text-white tracking-tight whitespace-nowrap">
+                        Presenter's CoPilot
                     </span>
                 </Link>
             </div>
@@ -2461,7 +2518,62 @@ export function Sidebar() {
         </aside>
     );
 }
+```
 
+# app\components\skeletons\DashboardSkeleton.tsx
+
+```tsx
+import { Skeleton } from "@/components/ui/skeleton";
+
+export function DashboardSkeleton() {
+    return (
+        <div className="flex h-screen w-full bg-emerald-950 overflow-hidden fixed inset-0 z-[100]">
+
+            {/* --- SIDEBAR SKELETON --- */}
+            <aside className="w-64 h-screen border-r border-emerald-500/10 flex flex-col p-4 bg-emerald-950/50 hidden md:flex">
+                <div className="flex items-center gap-2 mb-10 px-2 mt-2">
+                    <Skeleton className="h-6 w-6 rounded-md bg-emerald-500/20" />
+                    <Skeleton className="h-6 w-32 bg-emerald-500/20" />
+                </div>
+                <div className="space-y-3 flex-1">
+                    <Skeleton className="h-10 w-full rounded-lg bg-emerald-500/10" />
+                    <Skeleton className="h-10 w-full rounded-lg bg-emerald-500/5" />
+                </div>
+                <div className="mt-auto space-y-4">
+                    <Skeleton className="h-12 w-full rounded-xl bg-emerald-500/10" />
+                    <div className="flex items-center gap-3 pt-4 border-t border-emerald-500/10">
+                        <Skeleton className="h-10 w-10 rounded-full bg-emerald-500/20" />
+                        <div className="space-y-2">
+                            <Skeleton className="h-3 w-24 bg-emerald-500/20" />
+                            <Skeleton className="h-3 w-32 bg-emerald-500/10" />
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            {/* --- MAIN CONTENT SKELETON --- */}
+            <main className="flex-1 flex flex-col items-center justify-center p-4 relative bg-emerald-950">
+                <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
+                <div className="w-full max-w-3xl flex flex-col items-center gap-8 relative z-10">
+                    <div className="flex flex-col items-center gap-4 w-full text-center">
+                        <Skeleton className="h-12 w-80 md:w-96 rounded-lg bg-emerald-500/20" />
+                        <Skeleton className="h-5 w-2/3 max-w-md bg-emerald-500/10" />
+                    </div>
+                    <div className="w-full aspect-[16/9] md:aspect-[2/1] rounded-3xl border border-emerald-500/10 bg-emerald-900/10 backdrop-blur-sm p-8 flex flex-col items-center justify-center gap-6">
+                        <Skeleton className="h-12 w-12 rounded-full bg-emerald-500/20" />
+                        <div className="space-y-3 text-center flex flex-col items-center w-full">
+                            <Skeleton className="h-8 w-64 bg-emerald-500/20" />
+                            <Skeleton className="h-4 w-80 bg-emerald-500/10" />
+                        </div>
+                        <div className="mt-4 p-4 rounded-full bg-emerald-500/5">
+                            <Skeleton className="h-10 w-10 bg-emerald-500/20 rounded-lg" />
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+}
 ```
 
 # app\components\viewer\ScriptViewer.tsx
@@ -2473,13 +2585,12 @@ import { useState, useEffect, useRef } from 'react';
 import type { Presentation, Slide } from '@prisma/client';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import {
   ArrowLeft, ArrowRight, Play, Pause, Pencil,
   Type, Copy, Bold, Underline, Italic,
-  ChevronUp, ChevronDown, Gauge, LayoutDashboard, Clock,
-  MousePointer2, Eye, Mic, X, Maximize2, Minimize2, Shrink, Expand
+  ChevronUp, ChevronDown, LayoutDashboard, Clock,
+  MousePointer2, Eye, Mic, X, Maximize2, Minimize2, Loader2
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
@@ -2487,6 +2598,7 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import Image from 'next/image';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useRouter } from 'next/navigation'; // IMPORT AJOUTÉ
 
 type FullPresentation = Presentation & {
   slides: Slide[];
@@ -2497,12 +2609,16 @@ type Props = {
 };
 
 export function ScriptViewer({ presentation }: Props) {
+  const router = useRouter(); // HOOK ROUTER
+
   // --- ETATS GENERAUX ---
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  // On utilise l'état local pour l'affichage immédiat, mais on sauvegarde aussi en DB
   const [editableScripts, setEditableScripts] = useState<Record<string, string>>({});
 
   // Modales
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false); // NOUVEL ÉTAT DE CHARGEMENT
   const [currentEditingText, setCurrentEditingText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -2510,7 +2626,7 @@ export function ScriptViewer({ presentation }: Props) {
   // Timer & Prompteur
   const [isTimerSettingsOpen, setIsTimerSettingsOpen] = useState(false);
   const [tempDuration, setTempDuration] = useState(5);
-  const [editorFontSize, setEditorFontSize] = useState<'text-base' | 'text-xl' | 'text-3xl' | 'text-5xl'>('text-xl');
+  const [editorFontSize, setEditorFontSize] = useState<'text-base' | 'text-lg' | 'text-xl' | 'text-2xl'>('text-lg');
   const scriptContainerRef = useRef<HTMLDivElement>(null);
   const [isPrompterActive, setIsPrompterActive] = useState(false);
   const [scrollSpeed, setScrollSpeed] = useState(0.5);
@@ -2528,9 +2644,19 @@ export function ScriptViewer({ presentation }: Props) {
   const slideImageRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // --- STYLE UNIFIÉ STRICT ---
+  const commonEditorStyles = cn(
+    "absolute inset-0 w-full h-full p-8 m-0",
+    "font-mono text-lg leading-relaxed",
+    "whitespace-pre-wrap break-words",
+    "outline-none resize-none border-none",
+    "overflow-y-scroll"
+  );
+
   // --- LOGIQUE METIER ---
 
   const currentSlide = presentation.slides[currentSlideIndex];
+  // On priorise le script édité localement, sinon celui de la DB
   const originalScript = currentSlide.scriptPro || currentSlide.scriptMedium || currentSlide.scriptSimple || "Aucun script généré.";
   const displayScript = editableScripts[currentSlide.id] ?? originalScript;
 
@@ -2560,6 +2686,41 @@ export function ScriptViewer({ presentation }: Props) {
     }
   };
 
+  // --- NOUVELLE FONCTION DE SAUVEGARDE EN BASE DE DONNÉES ---
+  const handleEditSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+
+    try {
+      // 1. Mise à jour de l'état local pour fluidité immédiate
+      setEditableScripts(prev => ({ ...prev, [currentSlide.id]: currentEditingText }));
+
+      // 2. Appel API pour sauvegarder en base de données
+      const response = await fetch('/api/update-slide', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slideId: currentSlide.id,
+          newScript: currentEditingText
+        })
+      });
+
+      if (!response.ok) throw new Error("Erreur serveur");
+
+      toast.success("Script sauvegardé");
+      setIsEditDialogOpen(false);
+
+      // 3. Rafraîchir les données serveur (Next.js server components)
+      router.refresh();
+
+    } catch (error) {
+      console.error(error);
+      toast.error("Erreur lors de la sauvegarde.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Logique Prompteur
   useEffect(() => {
     if (isPrompterActive) {
@@ -2583,7 +2744,6 @@ export function ScriptViewer({ presentation }: Props) {
   const togglePrompter = () => {
     const newState = !isPrompterActive;
     setIsPrompterActive(newState);
-    // Sync timer with prompter
     if (newState) {
       setIsRunning(true);
     } else {
@@ -2614,7 +2774,6 @@ export function ScriptViewer({ presentation }: Props) {
       setIsRunning(true);
       setIsPresentationMode(true);
       setIsPrompterActive(true);
-
     }
   }, [countdown]);
 
@@ -2662,16 +2821,6 @@ export function ScriptViewer({ presentation }: Props) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const toggleTimer = () => {
-    if (isRunning) {
-      setIsRunning(false);
-      setIsPrompterActive(false);
-    } else {
-      if (timeLeft <= 0) setTimeLeft(duration * 60);
-      setIsRunning(true);
-    }
-  };
-
   const startPresentation = () => {
     if (isRunning) {
       setIsRunning(false);
@@ -2707,15 +2856,9 @@ export function ScriptViewer({ presentation }: Props) {
     setIsPrompterActive(false);
   };
 
-  const handleEditSave = () => {
-    setEditableScripts(prev => ({ ...prev, [currentSlide.id]: currentEditingText }));
-    setIsEditDialogOpen(false);
-    toast.success("Script sauvegardé localement");
-  };
-
   const cycleFontSize = () => {
     setEditorFontSize(prev =>
-      prev === 'text-base' ? 'text-xl' : prev === 'text-xl' ? 'text-3xl' : prev === 'text-3xl' ? 'text-5xl' : 'text-base'
+      prev === 'text-base' ? 'text-lg' : prev === 'text-lg' ? 'text-xl' : prev === 'text-xl' ? 'text-2xl' : 'text-base'
     );
   };
 
@@ -2746,21 +2889,49 @@ export function ScriptViewer({ presentation }: Props) {
     ));
   };
 
+  // --- RENDU ÉDITEUR ---
   const renderEditorScript = (text: string) => {
     if (!text) return null;
-    return text.split('\n').map((line, i) => (
-      <div key={i} className="min-h-[1.5em] whitespace-pre-wrap mb-2">
-        {line.split(/(\*\*.*?\*\*|<u>.*?<\/u>|_.*?_|\[.*?\])/g).map((part, j) => {
-          if (part.startsWith('**') && part.endsWith('**'))
-            return <span key={j} className="font-bold text-emerald-400">{part.slice(2, -2)}</span>;
-          if (part.startsWith('<u>') && part.endsWith('</u>'))
-            return <span key={j} className="underline decoration-emerald-500 underline-offset-4 decoration-2 text-white">{part.slice(3, -4)}</span>;
-          if (part.startsWith('_') && part.endsWith('_'))
-            return <span key={j} className="italic text-emerald-200/70">{part.slice(1, -1)}</span>;
-          if (part.startsWith('[') && part.endsWith(']'))
-            return <span key={j} className="inline-block bg-emerald-500/20 text-emerald-300 px-1 rounded text-sm font-bold uppercase tracking-wider mx-0.5 align-middle select-none">{part.slice(1, -1)}</span>;
-          return <span key={j}>{part}</span>;
-        })}
+    const lines = text.split('\n');
+    return lines.map((line, i) => (
+      <div key={i} className="min-h-[1.5em] whitespace-pre-wrap">
+        {line === "" ? (
+          <br />
+        ) : (
+          line.split(/(\*\*.*?\*\*|<u>.*?<\/u>|_.*?_|\[.*?\])/g).map((part, j) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+              return (
+                <span key={j}>
+                  <span className="text-emerald-600/50">**</span>
+                  <span className="font-bold text-emerald-400">{part.slice(2, -2)}</span>
+                  <span className="text-emerald-600/50">**</span>
+                </span>
+              );
+            }
+            if (part.startsWith('<u>') && part.endsWith('</u>')) {
+              return (
+                <span key={j}>
+                  <span className="text-emerald-600/50">&lt;u&gt;</span>
+                  <span className="underline decoration-emerald-500 underline-offset-4 decoration-2 text-white">{part.slice(3, -4)}</span>
+                  <span className="text-emerald-600/50">&lt;/u&gt;</span>
+                </span>
+              );
+            }
+            if (part.startsWith('_') && part.endsWith('_')) {
+              return (
+                <span key={j}>
+                  <span className="text-emerald-600/50">_</span>
+                  <span className="italic text-emerald-200/70">{part.slice(1, -1)}</span>
+                  <span className="text-emerald-600/50">_</span>
+                </span>
+              );
+            }
+            if (part.startsWith('[') && part.endsWith(']')) {
+              return <span key={j} className="text-emerald-300 font-bold">{part}</span>;
+            }
+            return <span key={j}>{part}</span>;
+          })
+        )}
       </div>
     ));
   };
@@ -2772,17 +2943,14 @@ export function ScriptViewer({ presentation }: Props) {
   return (
     <div className="h-full w-full">
       <style jsx global>{`
-          .editor-content {
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-            font-size: 1rem;
-            line-height: 1.75;
-            letter-spacing: normal;
-            padding: 1.5rem;
-          }
           .custom-scrollbar-dark::-webkit-scrollbar { width: 8px; height: 8px; }
           .custom-scrollbar-dark::-webkit-scrollbar-track { background: #022c22; }
           .custom-scrollbar-dark::-webkit-scrollbar-thumb { background: #065f46; border-radius: 4px; }
           .custom-scrollbar-dark::-webkit-scrollbar-thumb:hover { background: #10b981; }
+          
+          .scrollbar-stable {
+            scrollbar-gutter: stable;
+          }
         `}</style>
 
       {/* --- OVERLAY COMPTE À REBOURS --- */}
@@ -2812,12 +2980,41 @@ export function ScriptViewer({ presentation }: Props) {
         <div className="fixed inset-0 z-50 bg-black flex flex-row h-screen w-screen overflow-hidden">
           {/* PARTIE GAUCHE : SLIDE */}
           <div className="flex-1 relative bg-black flex items-center justify-center p-4">
-            {/* Header Slide */}
-            <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start z-10 bg-gradient-to-b from-black/80 to-transparent">
-              <div className="bg-emerald-950/50 backdrop-blur-md border border-emerald-500/20 px-4 py-2 rounded-lg">
-                <span className="text-emerald-400 font-bold mr-2">SLIDE {currentSlide.slideNumber}</span>
-                <span className="text-white/50">/ {presentation.slides.length}</span>
+
+            {/* Header Slide AVEC TIMER */}
+            <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start z-10 bg-gradient-to-b from-black/90 to-transparent">
+
+              <div className="flex items-center gap-4">
+                {/* Compteur de Slides */}
+                <div className="bg-emerald-950/60 backdrop-blur-md border border-emerald-500/20 px-4 py-2.5 rounded-xl flex items-center">
+                  <span className="text-emerald-400 font-bold mr-2 text-sm tracking-wide">SLIDE {currentSlide.slideNumber}</span>
+                  <span className="text-white/40 text-sm">/ {presentation.slides.length}</span>
+                </div>
+
+                {/* Chronomètre Synchronisé */}
+                <div className={cn(
+                  "flex items-center gap-3 bg-emerald-950/60 backdrop-blur-md border px-4 py-2.5 rounded-xl transition-all duration-300",
+                  isRunning
+                    ? "border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] bg-emerald-950/80"
+                    : "border-red-500/30 bg-red-950/20"
+                )}>
+                  <Clock className={cn(
+                    "w-4 h-4 transition-colors",
+                    isRunning ? "text-emerald-400 animate-pulse" : "text-red-400"
+                  )} />
+                  <span className={cn(
+                    "font-mono font-bold text-lg min-w-[70px] text-center tracking-widest",
+                    isRunning ? "text-white" : "text-red-200/80"
+                  )}>
+                    {formatTime(timeLeft)}
+                  </span>
+                  {!isRunning && (
+                    <span className="text-[10px] uppercase font-bold text-red-400 ml-1 tracking-wider">Pause</span>
+                  )}
+                </div>
               </div>
+
+              {/* Bouton Fermer */}
               <div className="flex gap-2 items-center">
                 <Button variant="ghost" size="icon" onClick={() => { setIsPresentationMode(false); setIsRunning(false); setIsPrompterActive(false); }} className="text-white/50 hover:text-white hover:bg-white/10 rounded-full h-10 w-10 transition-colors mr-2">
                   <X className="w-6 h-6" />
@@ -2995,12 +3192,28 @@ export function ScriptViewer({ presentation }: Props) {
           </div>
 
           <div className="flex flex-1 min-h-0 flex-row">
-            <div className="flex-grow relative bg-[#042f2e] group border-r border-[#064e3b]">
-              <div ref={backdropRef} className="editor-content absolute inset-0 w-full h-full whitespace-pre-wrap break-words text-white pointer-events-none overflow-hidden pb-32" aria-hidden="true" style={{ scrollbarGutter: 'stable' }}>
+            <div className="flex-grow relative bg-[#042f2e] group border-r border-[#064e3b] overflow-hidden">
+
+              {/* COUCHE VISUELLE (Texte riche + Syntaxe visible) */}
+              <div
+                ref={backdropRef}
+                className={cn(commonEditorStyles, "text-white pointer-events-none z-0 scrollbar-stable font-inherit")}
+                aria-hidden="true"
+              >
                 {renderEditorScript(currentEditingText) || <span className="text-white/20 italic">Commencez à écrire ici...</span>}
               </div>
-              <Textarea ref={textareaRef} value={currentEditingText} onChange={(e) => setCurrentEditingText(e.target.value)} onScroll={handleEditorScroll} className="editor-content absolute inset-0 w-full h-full bg-transparent border-none resize-none text-transparent caret-emerald-400 focus-visible:ring-0 selection:bg-emerald-500/30 overflow-y-scroll pb-32" style={{ scrollbarGutter: 'stable' }} spellCheck={false} />
-              <div className="absolute bottom-4 right-6 text-[10px] font-mono text-[#34d399] bg-[#022c22]/90 border border-[#065f46] px-3 py-1.5 rounded-full flex items-center gap-3 shadow-lg pointer-events-none z-10 opacity-75 group-hover:opacity-100 transition-opacity">
+
+              {/* COUCHE INTERACTIVE (Textarea natif transparent) */}
+              <textarea
+                ref={textareaRef}
+                value={currentEditingText}
+                onChange={(e) => setCurrentEditingText(e.target.value)}
+                onScroll={handleEditorScroll}
+                className={cn(commonEditorStyles, "bg-transparent text-transparent caret-emerald-400 z-10 scrollbar-stable font-inherit")}
+                spellCheck={false}
+              />
+
+              <div className="absolute bottom-4 right-6 text-[10px] font-mono text-[#34d399] bg-[#022c22]/90 border border-[#065f46] px-3 py-1.5 rounded-full flex items-center gap-3 shadow-lg pointer-events-none z-20 opacity-75 group-hover:opacity-100 transition-opacity">
                 <span className="font-bold text-white">{wordCount}</span> MOTS
                 <span className="w-px h-3 bg-[#065f46]"></span>
                 <span className="font-bold text-white">{charCount}</span> CAR.
@@ -3029,8 +3242,18 @@ export function ScriptViewer({ presentation }: Props) {
             </div>
           </div>
           <div className="p-4 border-t border-[#064e3b] bg-[#022c22] flex justify-end gap-3 z-20">
+            {/* BOUTON SAUVEGARDER AVEC ETAT DE CHARGEMENT */}
             <Button variant="ghost" onClick={() => setIsEditDialogOpen(false)} className="text-emerald-200 hover:text-white hover:bg-white/5">Annuler</Button>
-            <Button onClick={handleEditSave} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 shadow-lg shadow-emerald-900/20 transition-all">Sauvegarder</Button>
+            <Button onClick={handleEditSave} disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 shadow-lg shadow-emerald-900/20 transition-all">
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sauvegarde...
+                </>
+              ) : (
+                "Sauvegarder"
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -3254,6 +3477,91 @@ export default async function DashboardPage() {
                     )}
                 </div>
             </main>
+        </div>
+    );
+}
+```
+
+# app\generate\loading.tsx
+
+```tsx
+import { Skeleton } from "@/components/ui/skeleton";
+
+export default function Loading() {
+    return (
+        <div className="flex h-screen w-full bg-emerald-950 overflow-hidden">
+
+            {/* --- 1. SKELETON SIDEBAR (Gauche) --- */}
+            <aside className="w-64 h-screen border-r border-emerald-500/10 flex flex-col p-4 bg-emerald-950/50 hidden md:flex">
+
+                {/* Logo */}
+                <div className="flex items-center gap-2 mb-10 px-2 mt-2">
+                    <Skeleton className="h-6 w-6 rounded-md bg-emerald-500/20" />
+                    <Skeleton className="h-6 w-32 bg-emerald-500/20" />
+                </div>
+
+                {/* Menu Items */}
+                <div className="space-y-3 flex-1">
+                    {/* Item actif simulé */}
+                    <Skeleton className="h-10 w-full rounded-lg bg-emerald-500/10" />
+                    <Skeleton className="h-10 w-full rounded-lg bg-emerald-500/5" />
+                </div>
+
+                {/* Bas de page (Crédits & Profil) */}
+                <div className="mt-auto space-y-4">
+                    {/* Boites Crédits/Upgrade */}
+                    <Skeleton className="h-12 w-full rounded-xl bg-emerald-500/10" />
+                    <Skeleton className="h-12 w-full rounded-xl bg-emerald-500/10" />
+
+                    {/* Profil Utilisateur */}
+                    <div className="flex items-center gap-3 pt-4 border-t border-emerald-500/10">
+                        <Skeleton className="h-10 w-10 rounded-full bg-emerald-500/20" />
+                        <div className="space-y-2">
+                            <Skeleton className="h-3 w-24 bg-emerald-500/20" />
+                            <Skeleton className="h-3 w-32 bg-emerald-500/10" />
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            {/* --- 2. SKELETON CONTENU PRINCIPAL (Droite) --- */}
+            <main className="flex-1 flex flex-col items-center justify-center p-4 relative">
+
+                {/* Fond décoratif */}
+                <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/5 rounded-full blur-[120px] pointer-events-none" />
+
+                <div className="w-full max-w-3xl flex flex-col items-center gap-8 relative z-10">
+
+                    {/* Titre et sous-titre */}
+                    <div className="flex flex-col items-center gap-4 w-full text-center">
+                        <Skeleton className="h-12 w-80 md:w-96 rounded-lg bg-emerald-500/20" /> {/* Titre "Générez..." */}
+                        <Skeleton className="h-5 w-2/3 max-w-md bg-emerald-500/10" /> {/* Sous-titre */}
+                    </div>
+
+                    {/* La grande carte d'upload */}
+                    <div className="w-full aspect-[16/9] md:aspect-[2/1] rounded-3xl border border-emerald-500/10 bg-emerald-900/10 backdrop-blur-sm p-8 flex flex-col items-center justify-center gap-6">
+
+                        {/* Indicateur d'étape (cercle) */}
+                        <Skeleton className="h-12 w-12 rounded-full bg-emerald-500/20" />
+
+                        <div className="space-y-3 text-center flex flex-col items-center w-full">
+                            {/* Titre de la carte */}
+                            <Skeleton className="h-8 w-64 bg-emerald-500/20" />
+                            {/* Description formats */}
+                            <Skeleton className="h-4 w-80 bg-emerald-500/10" />
+                        </div>
+
+                        {/* Icône Upload (Nuage) */}
+                        <div className="mt-4 p-4 rounded-full bg-emerald-500/5">
+                            <Skeleton className="h-10 w-10 bg-emerald-500/20 rounded-lg" />
+                        </div>
+
+                        {/* Texte "Glissez-déposez" */}
+                        <Skeleton className="h-4 w-48 bg-emerald-500/10" />
+                    </div>
+                </div>
+            </main>
+
         </div>
     );
 }
@@ -3562,7 +3870,7 @@ import { Toaster } from "sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Presenter AI - Scripts de présentation",
+  title: "Presenter's CoPilot - Scripts de présentation",
   description: "Générez des scripts parfaits pour vos présentations.",
 };
 
@@ -3600,82 +3908,112 @@ export default function RootLayout({
 ```tsx
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useUser, SignInButton } from "@clerk/nextjs"; // 1. Import ajouté ici
 import { Button } from "@/components/ui/button";
 import { Spotlight } from "@/components/ui/spotlight-new";
 import { LayoutTextFlip } from "@/components/ui/layout-text-flip";
+import { Loader2, Presentation } from "lucide-react";
 
-// Imports de vos composants de sections
 import { Footer } from "@/app/components/landing/Footer";
 import { CTASection } from "@/app/components/landing/CTASectio";
 import { HowItWorks3D } from "@/app/components/landing/HowItWorks3D";
 import { SectionSeparator } from "@/components/ui/SectionSeparator";
+import { DashboardSkeleton } from "@/app/components/skeletons/DashboardSkeleton";
 
 export default function HomePage() {
   const { isSignedIn, isLoaded } = useUser();
   const router = useRouter();
 
+  const [showLanding, setShowLanding] = useState(false);
+
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
+    if (!isLoaded) return;
+
+    if (isSignedIn) {
       router.push("/generate");
+    } else {
+      const timer = setTimeout(() => {
+        setShowLanding(true);
+      }, 500);
+
+      return () => clearTimeout(timer);
     }
   }, [isLoaded, isSignedIn, router]);
 
-  // Si l'utilisateur est connecté, on n'affiche rien (ou un loader) en attendant la redirection
+  // Cas utilisateur connecté ou chargement
   if (isLoaded && isSignedIn) {
-    return null;
+    return <DashboardSkeleton />;
   }
 
+  if (!isLoaded || !showLanding) {
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-emerald-950 overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-[120px] pointer-events-none animate-pulse" />
+        <div className="relative z-10 flex flex-col items-center gap-8 animate-in fade-in zoom-in duration-500">
+          <div className="p-5 rounded-2xl bg-emerald-900/30 border border-emerald-500/20 shadow-2xl backdrop-blur-md">
+            <Presentation className="h-16 w-16 text-emerald-400" />
+          </div>
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 text-emerald-200 animate-spin" />
+            <p className="text-emerald-100/60 text-sm font-medium tracking-widest uppercase animate-pulse">
+              Chargement...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- LANDING PAGE ---
   return (
-    <main className="min-h-screen relative bg-emerald-950 selection:bg-emerald-500/30">
+    <main className="min-h-screen relative bg-emerald-950 selection:bg-emerald-500/30 animate-in fade-in duration-700">
 
-      {/* =========================================
-          SECTION 1 : HÉRO (ACCUEIL)
-      ========================================= */}
-      <div className="h-screen w-full flex items-center justify-center bg-transparent antialiased relative overflow-hidden">
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-transparent antialiased relative overflow-hidden pt-32 pb-32 lg:pt-40 lg:pb-0">
 
-        {/* Effet de lumière en haut */}
         <Spotlight className="-top-40 left-0 md:left-60 md:-top-20" fill="white" />
 
         <div className="container p-4 mx-auto relative z-10 w-full flex flex-col items-center justify-center">
 
-          {/* Badge "Nouveau" */}
           <div className="mb-6 px-4 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-sm font-medium animate-fade-in backdrop-blur-sm shadow-lg shadow-emerald-500/10">
             ✨ Nouveau : Support PDF et PowerPoint
           </div>
 
-          {/* Titre Animé */}
           <LayoutTextFlip
             text="Transformez vos slides en scripts "
             words={["percutants.", "captivants.", "professionnels.", "inoubliables."]}
+            className="text-4xl md:text-5xl lg:text-7xl font-bold tracking-tight"
           />
 
-          {/* Sous-titre */}
-          <p className="mt-8 font-normal text-lg text-neutral-300 max-w-2xl text-center mx-auto leading-relaxed">
+          <p className="mt-8 font-normal text-base md:text-lg text-neutral-300 max-w-2xl text-center mx-auto leading-relaxed px-4">
             Déposez votre fichier PowerPoint ou PDF et laissez notre IA générer un discours professionnel pour chaque slide.
             <span className="block mt-2 text-emerald-200/90 font-medium">
               Gagnez des heures de préparation et captivez votre audience.
             </span>
           </p>
 
-          {/* Boutons d'action */}
-          <div className="mt-10 flex gap-4 flex-col sm:flex-row items-center">
-            <Button
-              asChild
-              size="lg"
-              className="bg-white text-emerald-950 hover:bg-neutral-100 font-bold px-8 py-6 text-lg rounded-xl shadow-xl shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:scale-105 transition-all duration-300"
-            >
-              <Link href="/generate">Commencer gratuitement</Link>
-            </Button>
+          <div className="mt-10 flex gap-4 flex-col sm:flex-row items-center w-full sm:w-auto px-4">
+
+            {/* 
+               MODIFICATION ICI : 
+               Utilisation de SignInButton pour ouvrir le modal de connexion Clerk
+            */}
+            <SignInButton mode="modal">
+              <Button
+                size="lg"
+                className="w-full sm:w-auto bg-white text-emerald-950 hover:bg-neutral-100 font-bold px-8 py-6 text-lg rounded-xl shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:scale-105 transition-all duration-300"
+              >
+                Commencer gratuitement
+              </Button>
+            </SignInButton>
 
             <Button
               asChild
               size="lg"
               variant="outline"
-              className="border-emerald-700/50 text-emerald-100 hover:bg-emerald-900/50 hover:border-emerald-500 px-8 py-6 text-lg rounded-xl backdrop-blur-sm transition-all duration-300"
+              className="w-full sm:w-auto border-emerald-700/50 text-emerald-100 hover:bg-emerald-900/50 hover:border-emerald-500 px-8 py-6 text-lg rounded-xl backdrop-blur-sm transition-all duration-300"
             >
               <Link href="#how-it-works">Comment ça marche ?</Link>
             </Button>
@@ -3683,29 +4021,16 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* =========================================
-          SÉPARATEUR STYLÉ
-      ========================================= */}
-      {/* Positionné en négatif pour chevaucher légèrement la fin du Héro */}
-      <div className="relative z-20 -mt-24 mb-12 container mx-auto px-4">
+      <div className="relative z-20 mb-24 container mx-auto px-4">
         <SectionSeparator />
       </div>
 
-      {/* =========================================
-          SECTION 2 : COMMENT ÇA MARCHE (3D)
-      ========================================= */}
       <div id="how-it-works">
         <HowItWorks3D />
       </div>
 
-      {/* =========================================
-          SECTION 3 : APPEL À L'ACTION (CTA)
-      ========================================= */}
       <CTASection />
 
-      {/* =========================================
-          FOOTER
-      ========================================= */}
       <Footer />
 
     </main>
@@ -3737,7 +4062,7 @@ export default function PricingPage() {
                             Passez au niveau <span className="text-emerald-400">Supérieur</span>
                         </h1>
                         <p className="text-emerald-100/60 text-base max-w-2xl mx-auto">
-                            Débloquez tout le potentiel de Presenter AI avec nos offres premium.
+                            Débloquez tout le potentiel de Presenter's CoPilot avec nos offres premium.
                         </p>
                     </div>
 
@@ -3851,7 +4176,6 @@ function FeatureItem({ text, included, highlight = false }: { text: string, incl
         </div>
     );
 }
-
 ```
 
 # app\script-of-the-presentation\[presentationId]\page.tsx
@@ -4824,6 +5148,26 @@ export function SectionSeparator({ className }: { className?: string }) {
         </div>
     );
 }
+```
+
+# components\ui\skeleton.tsx
+
+```tsx
+import { cn } from "@/lib/utils"
+
+function Skeleton({
+    className,
+    ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+    return (
+        <div
+            className={cn("animate-pulse rounded-md bg-emerald-500/10", className)}
+            {...props}
+        />
+    )
+}
+
+export { Skeleton }
 ```
 
 # components\ui\spotlight-new.tsx
