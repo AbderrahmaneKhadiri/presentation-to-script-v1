@@ -76,6 +76,8 @@ next-env.d.ts
 *.db-journal
 prisma/dev.db
 .clerk/
+test-key.js
+
 ```
 
 # app\api\convert\route.ts
